@@ -15,8 +15,13 @@ from tensorflow.keras.metrics import MeanAbsoluteError
 
 from tensorflow.keras.layers import Dense, Conv1D, LSTM, Lambda, Reshape, RNN, LSTMCell
 
+import mukumuku_utils as mkuti
+
 import warnings
 warnings.filterwarnings('ignore')
+
+set_random_seed = mkuti.set_random_seed()
+set_random_seed(42)
 
 def compile_and_fit(model, window, patience=3, max_epochs=50):
     early_stopping = EarlyStopping(monitor='val_loss',
@@ -40,6 +45,8 @@ val_df = pd.read_csv('../data/val.csv', index_col=0)
 test_df = pd.read_csv('../data/test.csv', index_col=0)
 
 print(train_df.shape, val_df.shape, test_df.shape)
+
+DataWindow = mkuti.DataWindow()
 
 single_step_window = DataWindow(input_width=1, label_width=1, shift=1, label_columns=['traffic_volume']) 
 wide_window = DataWindow(input_width=24, label_width=24, shift=1, label_columns=['traffic_volume'])
