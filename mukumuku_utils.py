@@ -1,3 +1,30 @@
+import os
+import random
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+import datetime
+import torch
+import tensorflow as tf
+from transformers.trainer_utils import set_seed
+
+def set_random_seed(seed: int = 42):
+    # Python, NumPy, random モジュール、PyTorch のシードを設定
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
+    # TensorFlow のシードを設定
+    tf.random.set_seed(seed)
+
+    # PyTorch 設定（再現性のためにcudnnの設定を固定）
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 class DataWindow():
     def __init__(self, input_width, label_width, shift, 
                  train_df=train_df, val_df=val_df, test_df=test_df, 
