@@ -1,117 +1,59 @@
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+import datetime
+
 import numpy as np
+import pandas as pd
+import seaborn as sns
+import tensorflow as tf
+import matplotlib.pyplot as plt
 
-# データの準備 (時系列の順序を保持)
-def prepare_time_series_data(df, target_column, train_ratio=0.7, val_ratio=0.15):
-    # 日付と目的変数のカラムを除いた説明変数
-    X = df.drop(columns=[target_column, 'date']).values  
-    y = df[target_column].values  # 目的変数
+from tensorflow.keras import Model, Sequential
+
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.losses import MeanSquaredError
+from tensorflow.keras.metrics import MeanAbsoluteError
+
+from tensorflow.keras.layers import Dense, Conv1D, LSTM, Lambda, Reshape, RNN, LSTMCell
+
+import warnings
+warnings.filterwarnings('ignore')
+
+def compile_and_fit(model, window, patience=3, max_epochs=50):
+    early_stopping = EarlyStopping(monitor='val_loss',
+                                   patience=patience,
+                                   mode='min')
     
-    # データの標準化
-    scaler_X = StandardScaler()
-    scaler_y = StandardScaler()
-    X_scaled = scaler_X.fit_transform(X)
-    y_scaled = scaler_y.fit_transform(y.reshape(-1, 1))
+    model.compile(loss=MeanSquaredError(),
+                  optimizer=Adam(),
+                  metrics=[MeanAbsoluteError()])
     
-    # 順序を保ったままトレーニング、検証、テストデータに分割
-    train_size = int(len(X_scaled) * train_ratio)
-    val_size = int(len(X_scaled) * val_ratio)
+    history = model.fit(window.train,
+                       epochs=max_epochs,
+                       validation_data=window.val,
+                       callbacks=[early_stopping])
     
-    X_train = X_scaled[:train_size]
-    y_train = y_scaled[:train_size]
-    
-    X_val = X_scaled[train_size:train_size + val_size]
-    y_val = y_scaled[train_size:train_size + val_size]
-    
-    X_test = X_scaled[train_size + val_size:]
-    y_test = y_scaled[train_size + val_size:]
+    return history
 
-    # NumPyからPyTorchのTensorに変換
-    X_train, X_val, X_test = map(lambda x: torch.tensor(x, dtype=torch.float32), [X_train, X_val, X_test])
-    y_train, y_val, y_test = map(lambda y: torch.tensor(y, dtype=torch.float32), [y_train, y_val, y_test])
 
-    return X_train, X_val, X_test, y_train, y_val, y_test, scaler_y
+train_df = pd.read_csv('../data/train.csv', index_col=0)
+val_df = pd.read_csv('../data/val.csv', index_col=0)
+test_df = pd.read_csv('../data/test.csv', index_col=0)
 
-# 単純なニューラルネットワークモデルの構築
-class SimpleNN(nn.Module):
-    def __init__(self, input_dim):
-        super(SimpleNN, self).__init__()
-        self.fc1 = nn.Linear(input_dim, 64)
-        self.fc2 = nn.Linear(64, 32)
-        self.fc3 = nn.Linear(32, 1)
+print(train_df.shape, val_df.shape, test_df.shape)
 
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+single_step_window = DataWindow(input_width=1, label_width=1, shift=1, label_columns=['traffic_volume']) 
+wide_window = DataWindow(input_width=24, label_width=24, shift=1, label_columns=['traffic_volume'])
 
-# 学習プロセス (ベストモデルの保存)
-def train_model(model, X_train, y_train, X_val, y_val, epochs=50, batch_size=32, lr=0.001, weight_decay=0.01, model_path='best_model.pth'):
-    criterion = nn.MSELoss()
-    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+linear = Sequential([
+    Dense(units=1)
+])
 
-    train_dataset = torch.utils.data.TensorDataset(X_train, y_train)
-    val_dataset = torch.utils.data.TensorDataset(X_val, y_val)
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+history = compile_and_fit(linear, single_step_window)
 
-    best_loss = float('inf') 
-    for epoch in range(epochs):
-        model.train()
-        running_loss = 0.0
-        for batch_X, batch_y in train_loader:
-            optimizer.zero_grad()
-            outputs = model(batch_X)
-            loss = criterion(outputs, batch_y)
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item()
+val_performance['Linear'] = linear.evaluate(single_step_window.val)
+performance['Linear'] = linear.evaluate(single_step_window.test, verbose=0)
 
-        # 検証データでの評価
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for val_X, val_y in val_loader:
-                val_outputs = model(val_X)
-                val_loss += criterion(val_outputs, val_y).item()
+# Visualization
+wide_window.plot(linear)
 
-        val_loss /= len(val_loader)
-
-        if val_loss < best_loss:
-            best_loss = val_loss
-            torch.save(model.state_dict(), model_path) 
-            print(f'Best model saved at epoch {epoch+1} with validation loss: {val_loss:.4f}')
-        
-        if (epoch + 1) % 10 == 0:
-            print(f'Epoch [{epoch+1}/{epochs}], Loss: {running_loss/len(train_loader):.4f}, Val Loss: {val_loss:.4f}')
-    
-    print("Training complete")
-
-# 予測プロセス (モデル読み込み)
-def predict(model, X_test, model_path='best_model.pth'):
-    model.load_state_dict(torch.load(model_path))
-    model.eval()
-    with torch.no_grad():
-        predictions = model(X_test)
-    return predictions
-
-def run_pipeline(df, target_column, epochs=50, batch_size=32):
-    # データ準備
-    X_train, X_test, y_train, y_test, scaler_y = prepare_data(df, target_column)
-    
-    # モデル構築
-    input_dim = X_train.shape[1]
-    model = SimpleNN(input_dim)
-
-    # 学習
-    train_model(model, X_train, y_train, epochs=epochs, batch_size=batch_size)
-    
-    predictions = predict(model, X_test)
-    predictions = scaler_y.inverse_transform(predictions.numpy())
-    
-    return predictions, model
+plt.savefig('figures/CH14_F02_peixeiro.png', dpi=300)
