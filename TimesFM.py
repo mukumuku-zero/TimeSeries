@@ -124,20 +124,21 @@ history_list = []
 # MAE損失の計算と実測値と予測値の収集
 mae_losses = []
 for batch in tqdm(val_batches.as_numpy_iterator()):
-    past = batch[0]  # 履歴データ（train部分）
-    actuals = batch[3]  # 実測データ（test部分）
+    with torch.no_grad():
+        past = batch[0]  # 履歴データ（train部分）
+        actuals = batch[3][0]  # 実測データ（test部分） # 0は予測対象の値の位置を示している
 
-    # 予測を実行
-    _, forecasts = tfm.forecast(list(past), [0] * past.shape[0])
-    
-    # 実測値と予測値の対応する部分を取り出す
-    forecasts = forecasts[:, 0:actuals.shape[1], 5]  # 必要な範囲の予測を取り出し
-    mae_losses.append(np.abs(forecasts - actuals).mean())
-    
-    # 実測値、予測値、履歴データをリストに追加
-    actuals_list.append(actuals)
-    forecasts_list.append(forecasts)
-    history_list.append(past)
+        # 予測を実行
+        mean_outputs, full_outputs = tfm.forecast(list(past), [0] * past.shape[0])
+        
+        # 実測値と予測値の対応する部分を取り出す
+        forecasts = mean_outputs[0, 0:actuals.shape[0]] # 必要な範囲の予測を取り出し # 1要素目の0は予測対象の値の位置を示している
+        mae_losses.append(np.abs(forecasts - actuals).mean())
+        
+        # 実測値、予測値、履歴データをリストに追加
+        actuals_list.append(actuals)
+        forecasts_list.append(forecasts)
+        history_list.append(past)
   
 print(f"MAE: {np.mean(mae_losses)}")
 
